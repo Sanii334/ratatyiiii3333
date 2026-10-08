@@ -2,7 +2,7 @@
 import asyncio
 import logging
 import os
-from database import init_db
+from database import init_db, get_subscription
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
@@ -87,19 +87,30 @@ async def buy_vpn(message: Message):
 
 
 # Моя подписка
+
 @dp.message(F.text == "👤 Моя подписка")
 async def my_subscription(message: Message):
+    subscription = await get_subscription(message.from_user.id)
+
+    if not subscription or subscription["status"] != "active":
+        await message.answer(
+            "👤 Моя подписка\n\n"
+            "Активная подписка пока не найдена.\n\n"
+            "Нажми «☁️ Купить VPN», чтобы посмотреть информацию о покупке."
+        )
+        return
+
+    expires_at = subscription.get("expires_at") or "Не указано"
+    tariff = subscription.get("tariff") or "Не указан"
+    devices = subscription.get("devices") or "Не указано"
+
     await message.answer(
         "👤 Моя подписка\n\n"
-        "Активная подписка пока не найдена.\n\n"
-        "Когда система подписок будет подключена, "
-        "здесь появятся:\n"
-        "• Статус подписки\n"
-        "• Название тарифа\n"
-        "• Количество устройств\n"
-        "• Дата окончания\n"
-        "• Данные для подключения VPN\n\n"
-        "Выдача ключей пока не подключена."
+        "Статус: Активна\n"
+        f"Тариф: {tariff}\n"
+        f"Количество устройств: {devices}\n"
+        f"Действует до: {expires_at}\n\n"
+        "Данные VPN-подключения подключим следующим этапом."
     )
 
 
