@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import os
+from database import init_db
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
@@ -127,6 +128,7 @@ async def unknown_message(message: Message):
 
 async def main():
     logging.basicConfig(level=logging.INFO)
+    await init_db()
 
     try:
         await dp.start_polling(bot)
