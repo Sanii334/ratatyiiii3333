@@ -1,4 +1,3 @@
-
 import asyncio
 import logging
 import os
@@ -17,10 +16,6 @@ from aiogram.types import (
 from database import init_db, get_subscription
 
 
-# =========================
-# НАСТРОЙКИ
-# =========================
-
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 SUPPORT_URL = "https://t.me/vozduh_vpn_support"
@@ -30,10 +25,6 @@ OFFER_URL = "https://telegra.ph/PUBLICHNAYA-OFERTA-08-12-15"
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
-# =========================
-# ГЛАВНОЕ МЕНЮ
-# =========================
 
 main_keyboard = ReplyKeyboardMarkup(
     keyboard=[
@@ -51,27 +42,23 @@ main_keyboard = ReplyKeyboardMarkup(
 )
 
 
-# =========================
-# МЕНЮ ТАРИФОВ
-# =========================
-
 tariffs_keyboard = InlineKeyboardMarkup(
     inline_keyboard=[
         [
             InlineKeyboardButton(
-                text="🌱 3 устройства — скоро",
+                text="🌱 3 устройства — 299 ₽",
                 callback_data="tariff_3",
             )
         ],
         [
             InlineKeyboardButton(
-                text="🚀 5 устройств — скоро",
+                text="🚀 5 устройств — 399 ₽",
                 callback_data="tariff_5",
             )
         ],
         [
             InlineKeyboardButton(
-                text="⚡ 7 устройств — скоро",
+                text="⚡ 7 устройств — 499 ₽",
                 callback_data="tariff_7",
             )
         ],
@@ -84,10 +71,6 @@ tariffs_keyboard = InlineKeyboardMarkup(
     ]
 )
 
-
-# =========================
-# МЕНЮ ПОМОЩИ
-# =========================
 
 help_keyboard = InlineKeyboardMarkup(
     inline_keyboard=[
@@ -113,10 +96,6 @@ help_keyboard = InlineKeyboardMarkup(
 )
 
 
-# =========================
-# ЗАПУСК БОТА
-# =========================
-
 dp = Dispatcher()
 
 
@@ -130,18 +109,14 @@ async def start(message: Message):
     )
 
 
-# =========================
-# ПОКУПКА VPN
-# =========================
-
 @dp.message(F.text == "☁️ Купить VPN")
 async def buy_vpn(message: Message):
     await message.answer(
         "☁️ Тарифы «Воздух VPN»\n\n"
         "Выбери подходящий вариант:\n\n"
-        "🌱 Старт — 3 устройства\n"
-        "🚀 Оптимум — 5 устройств\n"
-        "⚡ Максимум — 7 устройств\n\n"
+        "🌱 Старт — 3 устройства — 299 ₽\n"
+        "🚀 Оптимум — 5 устройств — 399 ₽\n"
+        "⚡ Максимум — 7 устройств — 499 ₽\n\n"
         "Цены и подключение появятся позже. "
         "Сейчас покупка ещё недоступна.",
         reply_markup=tariffs_keyboard,
@@ -150,14 +125,15 @@ async def buy_vpn(message: Message):
 
 @dp.callback_query(F.data.in_({"tariff_3", "tariff_5", "tariff_7"}))
 async def tariff_coming_soon(callback: CallbackQuery):
-    devices = {
-        "tariff_3": 3,
-        "tariff_5": 5,
-        "tariff_7": 7,
-    }[callback.data]
+    tariffs = {
+        "tariff_3": (3, 299),
+        "tariff_5": (5, 399),
+        "tariff_7": (7, 499),
+    }
+    devices, price = tariffs[callback.data]
 
     await callback.answer(
-        f"Тариф на {devices} устройства — скоро появится!",
+        f"Тариф на {devices} устройства — {price} ₽. Скоро появится!",
         show_alert=True,
     )
 
@@ -170,10 +146,6 @@ async def back_to_menu(callback: CallbackQuery):
     )
     await callback.answer()
 
-
-# =========================
-# МОЯ ПОДПИСКА
-# =========================
 
 @dp.message(F.text == "👤 Моя подписка")
 async def my_subscription(message: Message):
@@ -207,10 +179,6 @@ async def my_subscription(message: Message):
     )
 
 
-# =========================
-# ПОМОЩЬ
-# =========================
-
 @dp.message(F.text == "🆘 Помощь")
 async def help_command(message: Message):
     await message.answer(
@@ -220,10 +188,6 @@ async def help_command(message: Message):
         reply_markup=help_keyboard,
     )
 
-
-# =========================
-# MAIN
-# =========================
 
 async def main():
     if not BOT_TOKEN:
@@ -244,4 +208,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
