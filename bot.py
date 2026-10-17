@@ -19,8 +19,8 @@ from database import init_db, get_subscription
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 SUPPORT_URL = "https://t.me/vozduh_vpn_support"
-PRIVACY_URL = "https://telegra.ph/Politika-konfidencialnosti-08-01-83"
-OFFER_URL = "https://telegra.ph/Polzovatelskoe-soglashenie-08-01-39"
+PRIVACY_URL = "https://telegra.ph/Politika-konfidencialnosti-10-17-72"
+OFFER_URL = "https://telegra.ph/Polzovatelskoe-soglashenie-10-17-42"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
