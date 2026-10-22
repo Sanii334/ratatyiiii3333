@@ -1,9 +1,6 @@
 import asyncio
 import logging
 import os
-import json
-import urllib.error
-import urllib.request
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
@@ -16,76 +13,15 @@ from aiogram.types import (
     InlineKeyboardButton,
 )
 
-from database import init_db, get_subscription
-
-
-H1_PANEL_API_URL = os.getenv("H1_PANEL_API_URL", "").rstrip("/")
-H1_PANEL_API_TOKEN = os.getenv("H1_PANEL_API_TOKEN", "")
-
-
-def check_h1_api_sync():
-    """Non-mutating check of H1 API access; never logs the token or response body."""
-    if not H1_PANEL_API_URL or not H1_PANEL_API_TOKEN:
-        return False, "Не заданы H1_PANEL_API_URL или H1_PANEL_API_TOKEN"
-
-    request = urllib.request.Request(
-        f"{H1_PANEL_API_URL}/inbounds",
-        headers={
-            "Authorization": f"Bearer {H1_PANEL_API_TOKEN}",
-            "Accept": "application/json",
-        },
-        method="GET",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=10) as response:
-            status = response.status
-            body = response.read(1024 * 1024)
-        if status < 200 or status >= 300:
-            return False, f"H1 API вернул HTTP {status}"
-        try:
-            payload = json.loads(body.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            return False, "H1 API ответил, но вернул не JSON"
-        if isinstance(payload, dict) and payload.get("ok") is False:
-            return False, "H1 API вернул ok=false; проверь токен и адрес (ответ без подробностей для безопасности)"
-
-        # Log only non-sensitive inbound metadata needed for client provisioning.
-        records = None
-        if isinstance(payload, dict):
-            for key in ("inbounds", "items", "data"):
-                candidate = payload.get(key)
-                if isinstance(candidate, list):
-                    records = candidate
-                    break
-                if isinstance(candidate, dict):
-                    nested = candidate.get("inbounds") or candidate.get("items")
-                    if isinstance(nested, list):
-                        records = nested
-                        break
-        if records is not None:
-            safe_items = []
-            for item in records:
-                if not isinstance(item, dict):
-                    continue
-                inbound_id = item.get("id", item.get("inbound_id", "?"))
-                label = item.get("remark") or item.get("name") or item.get("tag") or "без названия"
-                protocol = item.get("protocol") or item.get("type") or "не указан"
-                safe_items.append(f"id={inbound_id}, name={label}, protocol={protocol}")
-            if safe_items:
-                return True, "H1 API доступен; инбаунды: " + " | ".join(safe_items[:20])
-            return True, f"H1 API доступен (HTTP {status}, JSON получен), но формат списка инбаундов не распознан"
-
-        return True, f"H1 API доступен (HTTP {status}, JSON получен), но поле со списком инбаундов не найдено"
-    except urllib.error.HTTPError as exc:
-        return False, f"H1 API вернул HTTP {exc.code}"
-    except Exception as exc:
-        # Avoid printing request headers or credentials; only report exception type.
-        return False, f"Не удалось связаться с H1 API ({type(exc).__name__})"
-
-
-async def check_h1_api():
-    return await asyncio.to_thread(check_h1_api_sync)
-
+from database import (
+    init_db,
+    get_subscription,
+    save_subscription,
+    claim_payment_issuance,
+    finish_payment_issuance,
+    fail_payment_issuance,
+)
+from h1_client import H1APIError, H1_INBOUND_ID, create_vpn_client, get_inbounds
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
@@ -96,78 +32,90 @@ OFFER_URL = "https://telegra.ph/Polzovatelskoe-soglashenie-10-17-42"
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
 main_keyboard = ReplyKeyboardMarkup(
     keyboard=[
-        [
-            KeyboardButton(text="☁️ Купить VPN"),
-        ],
-        [
-            KeyboardButton(text="👤 Моя подписка"),
-        ],
-        [
-            KeyboardButton(text="🆘 Помощь"),
-        ],
+        [KeyboardButton(text="☁️ Купить VPN")],
+        [KeyboardButton(text="👤 Моя подписка")],
+        [KeyboardButton(text="🆘 Помощь")],
     ],
     resize_keyboard=True,
 )
 
-
 tariffs_keyboard = InlineKeyboardMarkup(
     inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text="🌱 3 устройства — 299 ₽",
-                callback_data="tariff_3",
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text="🚀 5 устройств — 399 ₽",
-                callback_data="tariff_5",
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text="⚡ 7 устройств — 499 ₽",
-                callback_data="tariff_7",
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text="⬅️ Главное меню",
-                callback_data="back_to_menu",
-            )
-        ],
+        [InlineKeyboardButton(text="🌱 3 устройства — 299 ₽", callback_data="tariff_3")],
+        [InlineKeyboardButton(text="🚀 5 устройств — 399 ₽", callback_data="tariff_5")],
+        [InlineKeyboardButton(text="⚡ 7 устройств — 499 ₽", callback_data="tariff_7")],
+        [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="back_to_menu")],
     ]
 )
-
 
 help_keyboard = InlineKeyboardMarkup(
     inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text="💬 Написать в поддержку",
-                url=SUPPORT_URL,
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text="🔒 Политика конфиденциальности",
-                url=PRIVACY_URL,
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text="📄 Публичная оферта",
-                url=OFFER_URL,
-            )
-        ],
+        [InlineKeyboardButton(text="💬 Написать в поддержку", url=SUPPORT_URL)],
+        [InlineKeyboardButton(text="🔒 Политика конфиденциальности", url=PRIVACY_URL)],
+        [InlineKeyboardButton(text="📄 Публичная оферта", url=OFFER_URL)],
     ]
 )
 
-
 dp = Dispatcher()
+
+
+async def issue_subscription_after_verified_payment(
+    *,
+    payment_id: str,
+    user_id: int,
+    username: str | None,
+    tariff: str,
+    devices: int,
+    days: int,
+):
+    """Вызывайте только после серверной проверки успешного платежа у провайдера.
+
+    Функция предназначена для первой выдачи подписки. Продление существующих
+    клиентов требует отдельного сценария и намеренно здесь не выполняется.
+    """
+    if not payment_id or not payment_id.strip():
+        raise ValueError("Не указан ID подтверждённого платежа")
+    if devices not in (3, 5, 7):
+        raise ValueError("Допустимое число устройств: 3, 5 или 7")
+    if days <= 0:
+        raise ValueError("Срок подписки должен быть больше нуля")
+
+    claimed = await claim_payment_issuance(payment_id.strip(), user_id)
+    if not claimed:
+        return {"issued": False, "reason": "duplicate_payment"}
+
+    try:
+        client = await create_vpn_client(
+            user_id=user_id,
+            days=days,
+            device_limit=devices,
+        )
+        subscription_key = client.get("subscription_url") or client.get("sub_url")
+        client_id = client.get("uuid") or client.get("id") or f"tg_{user_id}"
+
+        if not isinstance(subscription_key, str) or not subscription_key.startswith("https://"):
+            raise H1APIError("H1 не вернул корректную HTTPS-ссылку подписки")
+
+        await save_subscription(
+            user_id=user_id,
+            username=username,
+            tariff=tariff,
+            devices=devices,
+            days=days,
+            vpn_client_id=str(client_id),
+            vpn_key=subscription_key,
+        )
+        await finish_payment_issuance(payment_id.strip())
+        return {
+            "issued": True,
+            "subscription_url": subscription_key,
+            "expires_at": client.get("expires_at"),
+        }
+    except Exception as exc:
+        await fail_payment_issuance(payment_id.strip(), type(exc).__name__)
+        raise
 
 
 @dp.message(CommandStart())
@@ -188,8 +136,7 @@ async def buy_vpn(message: Message):
         "🌱 Старт — 3 устройства — 299 ₽\n"
         "🚀 Оптимум — 5 устройств — 399 ₽\n"
         "⚡ Максимум — 7 устройств — 499 ₽\n\n"
-        "Цены и подключение появятся позже. "
-        "Сейчас покупка ещё недоступна.",
+        "Цены и подключение появятся позже. Сейчас покупка ещё недоступна.",
         reply_markup=tariffs_keyboard,
     )
 
@@ -202,7 +149,6 @@ async def tariff_coming_soon(callback: CallbackQuery):
         "tariff_7": (7, 499),
     }
     devices, price = tariffs[callback.data]
-
     await callback.answer(
         f"Тариф на {devices} устройства — {price} ₽. Скоро появится!",
         show_alert=True,
@@ -234,20 +180,24 @@ async def my_subscription(message: Message):
         await message.answer(
             "👤 Моя подписка\n\n"
             "Активная подписка пока не найдена.\n"
-            "Когда подключение станет доступно, здесь появятся "
-            "твой тариф и срок действия.",
+            "Когда подключение станет доступно, здесь появятся твой тариф и срок действия.",
             reply_markup=main_keyboard,
         )
         return
 
-    await message.answer(
-        "👤 Моя подписка\n\n"
-        f"Статус: {subscription.get('status', 'неизвестен')}\n"
-        f"Тариф: {subscription.get('tariff') or 'не указан'}\n"
-        f"Устройства: {subscription.get('devices') or 'не указано'}\n"
+    details = [
+        "👤 Моя подписка",
+        "",
+        f"Статус: {subscription.get('status', 'неизвестен')}",
+        f"Тариф: {subscription.get('tariff') or 'не указан'}",
+        f"Устройства: {subscription.get('devices') or 'не указано'}",
         f"Действует до: {subscription.get('expires_at') or 'не указано'}",
-        reply_markup=main_keyboard,
-    )
+    ]
+    vpn_key = subscription.get("vpn_key")
+    if vpn_key:
+        details.extend(["", "🔑 Ссылка на подключение:", vpn_key])
+
+    await message.answer("\n".join(details), reply_markup=main_keyboard)
 
 
 @dp.message(F.text == "🆘 Помощь")
@@ -260,28 +210,32 @@ async def help_command(message: Message):
     )
 
 
+async def check_h1_on_startup():
+    try:
+        inbounds = await get_inbounds()
+        if not inbounds:
+            logger.warning("H1 API доступен, но список инбаундов пустой")
+            return
+
+        matching_inbound = any(
+            str(item.get("id", item.get("inbound_id", ""))) == str(H1_INBOUND_ID)
+            for item in inbounds
+        )
+        logger.info("H1 API доступен; инбаундов получено: %s", len(inbounds))
+        if not matching_inbound:
+            logger.warning("H1_INBOUND_ID не найден среди инбаундов панели; выдача подписок не сработает")
+    except H1APIError as exc:
+        logger.warning("Проверка H1 API не прошла: %s", str(exc))
+
+
 async def main():
     if not BOT_TOKEN:
-        raise RuntimeError(
-            "Не задан BOT_TOKEN. Добавь токен в переменные окружения Bothost."
-        )
+        raise RuntimeError("Не задан BOT_TOKEN. Добавь токен в переменные окружения Bothost.")
 
     await init_db()
-
-    if H1_PANEL_API_URL and H1_PANEL_API_TOKEN:
-        h1_ok, h1_message = await check_h1_api()
-        if h1_ok:
-            logger.info(h1_message)
-        else:
-            logger.warning(h1_message)
-    else:
-        logger.warning(
-            "H1 API пока не проверен: добавь H1_PANEL_API_URL и "
-            "H1_PANEL_API_TOKEN в переменные окружения Bothost."
-        )
+    await check_h1_on_startup()
 
     bot = Bot(token=BOT_TOKEN)
-
     try:
         logger.info("Бот запускается")
         await dp.start_polling(bot)
