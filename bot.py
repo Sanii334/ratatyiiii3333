@@ -4,14 +4,15 @@ import os
 from decimal import Decimal, InvalidOperation
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.filters import CommandStart
+from aiogram.filters import Command, CommandStart
 from aiogram.types import Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
 from database import init_db, get_subscription, save_subscription, save_payment, get_payment, get_pending_payments, update_payment_status, claim_payment_issuance, finish_payment_issuance, fail_payment_issuance
-from h1_client import H1APIError, H1_INBOUND_ID, create_vpn_client, get_client, get_inbounds
+from h1_client import H1APIError, H1_INBOUND_ID, create_vpn_client, create_test_client, delete_client, get_client, get_inbounds
 from platega_client import MERCHANT_ID, PlategaAPIError, create_payment, get_transaction, is_configured as platega_is_configured
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_TELEGRAM_ID = os.getenv("ADMIN_TELEGRAM_ID", "").strip()
 SUBSCRIPTION_DAYS = max(1, int(os.getenv("SUBSCRIPTION_DAYS", "30")))
 PAYMENT_CHECK_INTERVAL = max(10, int(os.getenv("PAYMENT_CHECK_INTERVAL", "20")))
 SUPPORT_URL = "https://t.me/vozduh_vpn_support"
@@ -231,6 +232,65 @@ async def my_subscription(message: Message):
 @dp.message(F.text == "🆘 Помощь")
 async def help_command(message: Message):
     await message.answer("🆘 Помощь по «Воздух VPN»\n\nЕсли возник вопрос, напиши в службу поддержки.\n\nПолезные документы доступны по кнопкам ниже.", reply_markup=help_keyboard)
+
+
+@dp.message(Command("h1test"))
+async def h1_test_command(message: Message):
+    # Fail closed: this command is available only to the explicitly configured admin.
+    if not ADMIN_TELEGRAM_ID.isdigit() or message.from_user.id != int(ADMIN_TELEGRAM_ID):
+        await message.answer("Команда недоступна.")
+        return
+
+    test_name = None
+    created = False
+    deleted = False
+    try:
+        inbounds = await get_inbounds()
+        matching = any(
+            str(item.get("id", item.get("inbound_id", ""))) == str(H1_INBOUND_ID)
+            for item in inbounds
+        )
+        if not matching:
+            await message.answer(
+                f"H1 API отвечает, но нужный инбаунд не найден. Получено инбаундов: {len(inbounds)}.\n"
+                "Тестового клиента не создавал. Проверь H1_INBOUND_ID в Bothost."
+            )
+            return
+
+        client = await create_test_client(message.from_user.id)
+        test_name = str(client["name"])
+        created = True
+        found = await get_client(test_name)
+        if not found:
+            raise H1APIError("Тестовый клиент не найден после создания")
+
+        # Do not expose UUIDs, subscription URLs, or credentials in Telegram messages.
+        await delete_client(test_name)
+        deleted = True
+        remaining = await get_client(test_name)
+        if remaining is not None:
+            deleted = False
+            raise H1APIError("После удаления клиент всё ещё отображается в H1")
+
+        await message.answer(
+            "✅ Проверка H1 завершена успешно.\n\n"
+            f"Инбаунд найден: {H1_INBOUND_ID}\n"
+            "Тестовый клиент: создан, найден в панели и удалён.\n"
+            "Секретные ссылки и UUID не отправлялись в чат."
+        )
+    except Exception as exc:
+        logger.warning("H1 admin test failed (%s); temp_name=%s", type(exc).__name__, test_name or "none")
+        if created and not deleted:
+            await message.answer(
+                "⚠️ Проверка не завершилась полностью. Тестовый клиент мог остаться в панели.\n"
+                f"Имя для ручного удаления: {test_name}\n"
+                "Открой панель H1 и удали только этого временного клиента."
+            )
+        else:
+            await message.answer(
+                "❌ Проверка H1 не прошла. Техническая ошибка: "
+                f"{type(exc).__name__}. Подробности смотри в логах Bothost; секреты бот не выводит."
+            )
 
 
 async def check_h1_on_startup():
