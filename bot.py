@@ -1,6 +1,9 @@
 import asyncio
 import logging
 import os
+import json
+import urllib.error
+import urllib.request
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
@@ -14,6 +17,45 @@ from aiogram.types import (
 )
 
 from database import init_db, get_subscription
+
+
+H1_PANEL_API_URL = os.getenv("H1_PANEL_API_URL", "").rstrip("/")
+H1_PANEL_API_TOKEN = os.getenv("H1_PANEL_API_TOKEN", "")
+
+
+def check_h1_api_sync():
+    """Non-mutating check of H1 API access; never logs the token or response body."""
+    if not H1_PANEL_API_URL or not H1_PANEL_API_TOKEN:
+        return False, "Не заданы H1_PANEL_API_URL или H1_PANEL_API_TOKEN"
+
+    request = urllib.request.Request(
+        f"{H1_PANEL_API_URL}/inbounds",
+        headers={
+            "Authorization": f"Bearer {H1_PANEL_API_TOKEN}",
+            "Accept": "application/json",
+        },
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            status = response.status
+            body = response.read(1024 * 1024)
+        if status < 200 or status >= 300:
+            return False, f"H1 API вернул HTTP {status}"
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return False, "H1 API ответил, но вернул не JSON"
+        return True, f"H1 API доступен (HTTP {status}, JSON получен)"
+    except urllib.error.HTTPError as exc:
+        return False, f"H1 API вернул HTTP {exc.code}"
+    except Exception as exc:
+        # Avoid printing request headers or credentials; only report exception type.
+        return False, f"Не удалось связаться с H1 API ({type(exc).__name__})"
+
+
+async def check_h1_api():
+    return await asyncio.to_thread(check_h1_api_sync)
 
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -196,6 +238,18 @@ async def main():
         )
 
     await init_db()
+
+    if H1_PANEL_API_URL and H1_PANEL_API_TOKEN:
+        h1_ok, h1_message = await check_h1_api()
+        if h1_ok:
+            logger.info(h1_message)
+        else:
+            logger.warning(h1_message)
+    else:
+        logger.warning(
+            "H1 API пока не проверен: добавь H1_PANEL_API_URL и "
+            "H1_PANEL_API_TOKEN в переменные окружения Bothost."
+        )
 
     bot = Bot(token=BOT_TOKEN)
 
