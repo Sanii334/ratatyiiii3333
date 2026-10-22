@@ -46,7 +46,36 @@ def check_h1_api_sync():
             payload = json.loads(body.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
             return False, "H1 API ответил, но вернул не JSON"
-        return True, f"H1 API доступен (HTTP {status}, JSON получен)"
+        if isinstance(payload, dict) and payload.get("ok") is False:
+            return False, "H1 API вернул ok=false; проверь токен и адрес (ответ без подробностей для безопасности)"
+
+        # Log only non-sensitive inbound metadata needed for client provisioning.
+        records = None
+        if isinstance(payload, dict):
+            for key in ("inbounds", "items", "data"):
+                candidate = payload.get(key)
+                if isinstance(candidate, list):
+                    records = candidate
+                    break
+                if isinstance(candidate, dict):
+                    nested = candidate.get("inbounds") or candidate.get("items")
+                    if isinstance(nested, list):
+                        records = nested
+                        break
+        if records is not None:
+            safe_items = []
+            for item in records:
+                if not isinstance(item, dict):
+                    continue
+                inbound_id = item.get("id", item.get("inbound_id", "?"))
+                label = item.get("remark") or item.get("name") or item.get("tag") or "без названия"
+                protocol = item.get("protocol") or item.get("type") or "не указан"
+                safe_items.append(f"id={inbound_id}, name={label}, protocol={protocol}")
+            if safe_items:
+                return True, "H1 API доступен; инбаунды: " + " | ".join(safe_items[:20])
+            return True, f"H1 API доступен (HTTP {status}, JSON получен), но формат списка инбаундов не распознан"
+
+        return True, f"H1 API доступен (HTTP {status}, JSON получен), но поле со списком инбаундов не найдено"
     except urllib.error.HTTPError as exc:
         return False, f"H1 API вернул HTTP {exc.code}"
     except Exception as exc:
