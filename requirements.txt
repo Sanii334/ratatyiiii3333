@@ -1,4 +1,3 @@
 aiogram
 aiosqlite
-threexui
 python-dotenv
