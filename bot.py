@@ -19,7 +19,7 @@ SUPPORT_URL = "https://t.me/vozduh_vpn_support"
 PRIVACY_URL = "https://telegra.ph/Politika-konfidencialnosti-10-17-72"
 OFFER_URL = "https://telegra.ph/Polzovatelskoe-soglashenie-10-17-42"
 TARIFFS = {
-    "tariff_3": {"devices": 3, "amount": 299, "name": "Старт"},
+    "tariff_3": {"devices": 3, "amount": 1, "name": "Старт"},
     "tariff_5": {"devices": 5, "amount": 399, "name": "Оптимум"},
     "tariff_7": {"devices": 7, "amount": 499, "name": "Максимум"},
 }
@@ -34,7 +34,7 @@ main_keyboard = ReplyKeyboardMarkup(
 )
 tariffs_keyboard = InlineKeyboardMarkup(
     inline_keyboard=[
-        [InlineKeyboardButton(text=f"🌱 3 устройства — 299 ₽ / {SUBSCRIPTION_DAYS} дней", callback_data="tariff_3")],
+        [InlineKeyboardButton(text=f"🌱 3 устройства — 1 ₽ / {SUBSCRIPTION_DAYS} дней", callback_data="tariff_3")],
         [InlineKeyboardButton(text=f"🚀 5 устройств — 399 ₽ / {SUBSCRIPTION_DAYS} дней", callback_data="tariff_5")],
         [InlineKeyboardButton(text=f"⚡ 7 устройств — 499 ₽ / {SUBSCRIPTION_DAYS} дней", callback_data="tariff_7")],
         [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="back_to_menu")],
