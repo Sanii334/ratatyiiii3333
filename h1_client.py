@@ -7,7 +7,7 @@ import aiohttp
 H1_PANEL_API_URL = os.getenv("H1_PANEL_API_URL", "").rstrip("/")
 H1_PANEL_API_TOKEN = os.getenv("H1_PANEL_API_TOKEN", "")
 
-H1_INBOUND_ID = os.getenv("H1_INBOUND_ID", "id_4cc5c5fa4a")
+H1_INBOUND_ID = os.getenv("H1_INBOUND_ID", "ib_4cc5c5fa4a")
 H1_API_TIMEOUT_SECONDS = float(os.getenv("H1_API_TIMEOUT_SECONDS", "15"))
 
 
