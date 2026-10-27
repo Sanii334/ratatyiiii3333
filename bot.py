@@ -18,7 +18,7 @@ SUPPORT_URL = "https://t.me/vozduh_vpn_support"
 PRIVACY_URL = "https://telegra.ph/Politika-konfidencialnosti-10-17-72"
 OFFER_URL = "https://telegra.ph/Polzovatelskoe-soglashenie-10-17-42"
 TARIFFS = {
-    "tariff_3": {"devices": 3, "amount": 299, "name": "Старт"},
+    "tariff_3": {"devices": 3, "amount": 1, "name": "Старт"},
     "tariff_5": {"devices": 5, "amount": 399, "name": "Оптимум"},
     "tariff_7": {"devices": 7, "amount": 499, "name": "Максимум"},
 }
