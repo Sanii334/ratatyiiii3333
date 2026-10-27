@@ -1,5 +1,4 @@
 import os
-import secrets
 from typing import Any
 from urllib.parse import quote
 
@@ -7,7 +6,7 @@ import aiohttp
 
 H1_PANEL_API_URL = os.getenv("H1_PANEL_API_URL", "").rstrip("/")
 H1_PANEL_API_TOKEN = os.getenv("H1_PANEL_API_TOKEN", "")
-H1_INBOUND_ID = os.getenv("H1_INBOUND_ID", "ib_ceff1da1aa")
+H1_INBOUND_ID = os.getenv("H1_INBOUND_ID", "ib_4cc5c5fa4a")
 H1_API_TIMEOUT_SECONDS = float(os.getenv("H1_API_TIMEOUT_SECONDS", "15"))
 
 
@@ -123,33 +122,3 @@ async def create_vpn_client(
     if not isinstance(client, dict):
         raise H1APIError("H1 не вернул объект созданного клиента")
     return client
-
-
-async def create_test_client(admin_user_id: int) -> dict[str, Any]:
-    """Create a uniquely named short-lived test client; caller must delete it."""
-    if admin_user_id <= 0:
-        raise ValueError("admin_user_id должен быть положительным")
-    if not H1_INBOUND_ID:
-        raise H1APIError("Не задана переменная H1_INBOUND_ID")
-    name = f"bot_test_{admin_user_id}_{secrets.token_hex(4)}"
-    payload = {
-        "name": name,
-        "days": 1,
-        "device_limit": 3,
-        "traffic_limit_gb": 0,
-        "manual": True,
-        "inbound_ids": [H1_INBOUND_ID],
-    }
-    data = await _request("POST", "/create", json_body=payload)
-    client = data.get("client")
-    if not isinstance(client, dict):
-        # Creation may have succeeded even if the response shape was unexpected.
-        raise H1APIError(f"H1 не вернул объект тестового клиента; проверьте имя {name}")
-    client["name"] = name
-    return client
-
-
-async def delete_client(name: str) -> None:
-    if not name or not name.startswith("bot_test_"):
-        raise H1APIError("Удаление разрешено только для временных тестовых клиентов")
-    await _request("DELETE", f"/clients/{quote(name, safe='')}")
