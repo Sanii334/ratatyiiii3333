@@ -1,7 +1,8 @@
 import aiosqlite
 from datetime import datetime, timedelta, timezone
+import os
 
-DB_NAME = "vozduh.db"
+DB_NAME = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vozduh.db")
 
 async def init_db():
     async with aiosqlite.connect(DB_NAME) as db:
