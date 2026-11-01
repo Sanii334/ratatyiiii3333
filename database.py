@@ -314,107 +314,53 @@ async def get_payment_issuance_status(payment_id):
         return row[0] if row else None
 
 
-async def claim_payment_issuance(payment_id, user_id):
-    now = utcnow()
-
-    now_text = now.isoformat()
-
-    stale_before = (
-        now - timedelta(minutes=ISSUANCE_LEASE_MINUTES)
-    ).isoformat()
-
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute("PRAGMA busy_timeout=5000")
+async def claim_payment_issuance(payment_id: int, user_id: int) -> bool:
+    async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("BEGIN IMMEDIATE")
 
-        try:
-            await db.execute("""
-                INSERT OR IGNORE INTO payment_issuance (
-                    payment_id,
-                    user_id,
-                    status,
-                    created_at,
-                    updated_at
-                )
-                VALUES (?, ?, 'processing', ?, ?)
-            """, (
-                payment_id,
-                user_id,
-                now_text,
-                now_text
-            ))
+        cursor = await db.execute(
+            """
+            SELECT status, updated_at
+            FROM payment_issuance
+            WHERE payment_id = ? AND user_id = ?
+            """,
+            (payment_id, user_id)
+        )
+        row = await cursor.fetchone()
 
-            cur = await db.execute("""
-                SELECT user_id, status, updated_at
-                FROM payment_issuance
-                WHERE payment_id = ?
-            """, (payment_id,))
-
-            row = await cur.fetchone()
-
-            if (
-                not row
-                or int(row[0]) != int(user_id)
-                or row[1] == "completed"
-            ):
-                await db.commit()
-                return False
-
-            can_claim = (
-                row[1] == "failed"
-                or (
-                    row[1] == "processing"
-                    and (row[2] or "") < stale_before
-                )
+        if row is None:
+            await db.execute(
+                """
+                INSERT INTO payment_issuance
+                (payment_id, user_id, status, created_at, updated_at)
+                VALUES (?, ?, 'processing', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """,
+                (payment_id, user_id)
             )
-
-            if not can_claim:
-                await db.commit()
-                return False
-
-            cur = await db.execute("""
-                UPDATE payment_issuance
-                SET
-                    status = 'processing',
-                    error_type = NULL,
-                    updated_at = ?
-                WHERE
-                    payment_id = ?
-                    AND user_id = ?
-                    AND status != 'completed'
-            """, (
-                now_text,
-                payment_id,
-                user_id
-            ))
-
-            claimed = cur.rowcount == 1
-
             await db.commit()
+            return True
 
-            return claimed
+        status, updated_at = row
 
-        except Exception:
-            await db.rollback()
-            raise
-
-
-async def finish_payment_issuance(payment_id):
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute("""
-            UPDATE payment_issuance
-            SET
-                status = 'completed',
-                error_type = NULL,
-                updated_at = ?
-            WHERE payment_id = ?
-        """, (
-            utcnow().isoformat(),
-            payment_id
-        ))
+        if status == "failed" or (
+            status == "processing"
+            and updated_at < await _get_stale_timestamp(db)
+        ):
+            await db.execute(
+                """
+                UPDATE payment_issuance
+                SET status = 'processing',
+                    updated_at = CURRENT_TIMESTAMP,
+                    error_type = NULL
+                WHERE payment_id = ? AND user_id = ?
+                """,
+                (payment_id, user_id)
+            )
+            await db.commit()
+            return True
 
         await db.commit()
-
+        return False
 
 async def fail_payment_issuance(payment_id, error_type):
     async with aiosqlite.connect(DB_NAME) as db:
