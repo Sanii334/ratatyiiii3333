@@ -54,6 +54,12 @@ async def save_subscription(*, user_id, username, tariff, devices, days, vpn_cli
         await db.commit()
     return expiry
 
+async def upgrade_subscription_devices(user_id, *, new_tariff, new_devices):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute("UPDATE subscriptions SET tariff=?, devices=? WHERE user_id=?",
+                         (new_tariff, new_devices, user_id))
+        await db.commit()
+
 async def save_payment(*, transaction_id, user_id, username, tariff, devices, amount, days,
                        kind="subscription", target_devices=None):
     now = utcnow().isoformat()
@@ -93,7 +99,6 @@ async def claim_payment_issuance(payment_id, user_id):
         if not row or int(row[0]) != int(user_id) or row[1] == "completed":
             await db.commit()
             return False
-        # Retry failed/incomplete work; H1 client lookup guards ordinary duplicate creation.
         await db.execute("UPDATE payment_issuance SET status='processing',updated_at=? WHERE payment_id=?", (now,payment_id))
         await db.commit()
         return True
@@ -119,3 +124,8 @@ async def claim_trial(user_id):
             return True
         except aiosqlite.IntegrityError:
             return False
+
+async def cancel_trial_claim(user_id):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute("DELETE FROM trial_claims WHERE user_id=?", (user_id,))
+        await db.commit()
