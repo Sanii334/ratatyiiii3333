@@ -1,7 +1,6 @@
 import os
 from typing import Any
 from urllib.parse import quote
-
 import aiohttp
 
 H1_PANEL_API_URL = os.getenv("H1_PANEL_API_URL", "").rstrip("/")
@@ -9,17 +8,14 @@ H1_PANEL_API_TOKEN = os.getenv("H1_PANEL_API_TOKEN", "")
 H1_INBOUND_ID = os.getenv("H1_INBOUND_ID", "ib_4cc5c5fa4a")
 H1_API_TIMEOUT_SECONDS = float(os.getenv("H1_API_TIMEOUT_SECONDS", "15"))
 
-
 class H1APIError(RuntimeError):
     pass
-
 
 def _check_config() -> None:
     if not H1_PANEL_API_URL:
         raise H1APIError("Не задана переменная H1_PANEL_API_URL")
     if not H1_PANEL_API_TOKEN:
         raise H1APIError("Не задана переменная H1_PANEL_API_TOKEN")
-
 
 async def _request(
     method: str,
@@ -65,14 +61,12 @@ async def _request(
     except (aiohttp.ClientError, TimeoutError) as exc:
         raise H1APIError(f"Не удалось связаться с H1 API: {type(exc).__name__}") from None
 
-
 async def get_inbounds() -> list[dict[str, Any]]:
     data = await _request("GET", "/inbounds")
     items = data.get("inbounds", data.get("items", []))
     if not isinstance(items, list):
         raise H1APIError("H1 API вернул некорректный список инбаундов")
     return [item for item in items if isinstance(item, dict)]
-
 
 async def get_client(name: str) -> dict[str, Any] | None:
     try:
@@ -84,7 +78,6 @@ async def get_client(name: str) -> dict[str, Any] | None:
     client = data.get("client")
     return client if isinstance(client, dict) else data
 
-
 async def create_vpn_client(
     user_id: int,
     days: int,
@@ -95,8 +88,8 @@ async def create_vpn_client(
         raise ValueError("user_id должен быть положительным")
     if days <= 0:
         raise ValueError("days должен быть больше нуля")
-    if device_limit not in (3, 5, 7):
-        raise ValueError("device_limit должен быть 3, 5 или 7")
+    if device_limit not in (3, 5, 7, 10):
+        raise ValueError("device_limit должен быть 3, 5, 7 или 10")
     if traffic_limit_gb < 0:
         raise ValueError("traffic_limit_gb не может быть отрицательным")
     if not H1_INBOUND_ID:
@@ -121,4 +114,14 @@ async def create_vpn_client(
     client = data.get("client")
     if not isinstance(client, dict):
         raise H1APIError("H1 не вернул объект созданного клиента")
+    return client
+
+async def update_client_device_limit(name: str, device_limit: int) -> dict[str, Any]:
+    if device_limit not in (3, 5, 7, 10):
+        raise ValueError("device_limit должен быть 3, 5, 7 или 10")
+    payload = {"device_limit": device_limit}
+    data = await _request("PATCH", f"/clients/{quote(name, safe='')}", json_body=payload)
+    client = data.get("client")
+    if not isinstance(client, dict):
+        raise H1APIError("H1 не вернул объект обновлённого клиента")
     return client
